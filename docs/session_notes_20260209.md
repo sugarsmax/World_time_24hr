@@ -12,11 +12,11 @@ A 24-hour analog world time clock as a static web app, inspired by a watch face 
 ## Design
 
 - Circular 24-hour dial: noon at top, midnight at bottom
-- Top half cream (day), bottom half dark (night), split at the 6am/6pm horizontal line
+- Day/night regions as a pie-slice wedge based on actual Portland sunrise/sunset times (NOAA solar equations), not a fixed 6am/6pm split
 - 5 city hands radiating from center, with city names as rotated labels along each hand
-- Hands adapt colour: dark strokes on the light half, light strokes on the dark half (canvas clipping)
+- Hands adapt colour: dark strokes on the day wedge, light strokes on the night wedge (canvas arc-clipping)
 - Portland hand highlighted in blue as the "home" city
-- Sun icon in the day half, crescent moon in the night half
+- Sun icon at the midpoint of the day arc, crescent moon at the midpoint of the night arc
 - Hour numbers (1-12, repeated twice) and tick marks around the edge
 - Smooth `requestAnimationFrame` animation, retina-aware, responsive
 
@@ -51,7 +51,9 @@ World_time_24hr/
 ## Key Implementation Details
 
 - **Angle math:** `hoursSinceNoon * 15 - 90` degrees maps 24-hour time to canvas angles (noon = top)
-- **Adaptive hand colours:** Each hand is drawn twice using `ctx.clip()` -- once clipped to the top half (dark colour) and once to the bottom half (light colour)
+- **Sunrise/sunset:** NOAA Solar Calculator equations compute sunrise and sunset for Portland's lat/lng (45.52 N, 122.68 W) using Julian Day, solar declination, equation of time, and hour-angle formulas. Recomputed hourly; DST-aware via `Intl` UTC-offset detection.
+- **Night wedge:** The dark region is a pie-slice arc from the sunset angle clockwise through midnight to the sunrise angle, rather than a fixed semicircle. The wedge shifts with the seasons -- wider in winter, narrower in summer.
+- **Adaptive hand colours:** Each hand is drawn twice using `ctx.clip()` -- once clipped to the day wedge (dark colour) and once to the night wedge (light colour)
 - **Label readability:** Labels rotate with the hand angle, but flip 180 degrees when pointing left so text is never upside-down (`if (Math.cos(angle) < 0) angle += Math.PI`)
 - **City config** is a simple array at the top of `clock.js` -- easy to add/remove/reorder cities
 
@@ -81,6 +83,7 @@ Set `home: true` on whichever city should get the blue accent hand.
 - Add/remove cities dynamically via a settings panel
 - Wrap as a macOS menubar app or Electron desktop widget
 - Add subtle transition animation at the day/night boundary
+- Make home location configurable (currently hardcoded to Portland, OR)
 
 ---
 

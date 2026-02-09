@@ -11,6 +11,12 @@
         { name: 'MANILA',   tz: 'Asia/Manila',         home: false },
     ];
 
+    /* ── Home Location (for sunrise / sunset) ────────────────── */
+
+    const HOME_LAT =  45.5152;   // Portland, OR
+    const HOME_LNG = -122.6784;
+    const HOME_TZ  = 'America/Los_Angeles';
+
     /* ── Colour Palette ─────────────────────────────────────── */
 
     const COL = {
@@ -77,23 +83,176 @@
         return (hrs * 15 - 90) * Math.PI / 180;
     }
 
-    /** True when angle falls in the top (day) half. */
+    /** Convert decimal hours (0–24) to canvas angle (radians). */
+    function decimalToAngle(dec) {
+        const hrs = ((dec - 12 + 24) % 24);
+        return (hrs * 15 - 90) * Math.PI / 180;
+    }
+
+    /** Normalise angle to [0, 2π). */
+    function normAngle(a) {
+        const T = 2 * Math.PI;
+        return ((a % T) + T) % T;
+    }
+
+    /** Midpoint of the clockwise arc from a → b. */
+    function midAngle(a, b) {
+        a = normAngle(a);
+        b = normAngle(b);
+        let diff = b - a;
+        if (diff < 0) diff += 2 * Math.PI;
+        return normAngle(a + diff / 2);
+    }
+
+    /** True when the given canvas angle falls in the day arc
+     *  (between sunrise and sunset, clockwise through noon). */
     function isDay(angle) {
-        return Math.sin(angle) <= 0;
+        const a = normAngle(angle);
+        const r = sunAngles.rise;
+        const s = sunAngles.set;
+        if (r <= s) return a >= r && a <= s;
+        return a >= r || a <= s;
+    }
+
+    /* ── Sunrise / Sunset — NOAA Solar Calculator ────────────── */
+
+    let sunTimes  = { sunrise: 6, sunset: 18 };
+    let sunAngles = {
+        rise: normAngle(decimalToAngle(6)),
+        set:  normAngle(decimalToAngle(18)),
+    };
+
+    /** Return the UTC offset (in minutes) for a given IANA timezone. */
+    function getUtcOffsetMinutes(tz) {
+        try {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: tz,
+                timeZoneName: 'longOffset',
+            }).formatToParts(new Date());
+            const tzp = parts.find(function (p) { return p.type === 'timeZoneName'; });
+            if (tzp) {
+                if (tzp.value === 'GMT') return 0;
+                const m = tzp.value.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+                if (m) {
+                    let mins = parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0);
+                    if (m[1] === '-') mins = -mins;
+                    return mins;
+                }
+            }
+        } catch (_) { /* fall through to default */ }
+        return 0;
+    }
+
+    /** Compute sunrise/sunset for HOME location using NOAA equations.
+     *  Updates the sunTimes and sunAngles module-level variables. */
+    function computeSunTimes() {
+        var now = new Date();
+        var D2R = Math.PI / 180;
+
+        /* Date in home timezone */
+        var dp = new Intl.DateTimeFormat('en-US', {
+            timeZone: HOME_TZ,
+            year: 'numeric', month: 'numeric', day: 'numeric',
+        }).formatToParts(now);
+
+        var yr, mo, dy;
+        for (var i = 0; i < dp.length; i++) {
+            if (dp[i].type === 'year')  yr = parseInt(dp[i].value, 10);
+            if (dp[i].type === 'month') mo = parseInt(dp[i].value, 10);
+            if (dp[i].type === 'day')   dy = parseInt(dp[i].value, 10);
+        }
+
+        /* Julian Day Number (Gregorian) */
+        var y = yr, m = mo;
+        if (m <= 2) { y--; m += 12; }
+        var A  = Math.floor(y / 100);
+        var B  = 2 - A + Math.floor(A / 4);
+        var JD = Math.floor(365.25 * (y + 4716))
+               + Math.floor(30.6001 * (m + 1))
+               + dy + B - 1524.5;
+        var JC = (JD - 2451545) / 36525;
+
+        /* Sun geometry */
+        var L0 = (280.46646 + JC * (36000.76983 + 0.0003032 * JC)) % 360;
+        var M  = 357.52911 + JC * (35999.05029 - 0.0001537 * JC);
+        var e  = 0.016708634 - JC * (0.000042037 + 0.0000001267 * JC);
+
+        var C = Math.sin(M * D2R) * (1.914602 - JC * (0.004817 + 0.000014 * JC))
+              + Math.sin(2 * M * D2R) * (0.019993 - 0.000101 * JC)
+              + Math.sin(3 * M * D2R) * 0.000289;
+
+        var omega  = 125.04 - 1934.136 * JC;
+        var lambda = (L0 + C) - 0.00569 - 0.00478 * Math.sin(omega * D2R);
+
+        var eps0 = 23 + (26 + (21.448 - JC * (46.815 + JC *
+                   (0.00059 - JC * 0.001813))) / 60) / 60;
+        var eps  = eps0 + 0.00256 * Math.cos(omega * D2R);
+
+        /* Solar declination */
+        var decl = Math.asin(Math.sin(eps * D2R) * Math.sin(lambda * D2R)) / D2R;
+
+        /* Equation of time (minutes) */
+        var y2  = Math.pow(Math.tan(eps * D2R / 2), 2);
+        var EoT = y2 * Math.sin(2 * L0 * D2R)
+                - 2 * e * Math.sin(M * D2R)
+                + 4 * e * y2 * Math.sin(M * D2R) * Math.cos(2 * L0 * D2R)
+                - 0.5 * y2 * y2 * Math.sin(4 * L0 * D2R)
+                - 1.25 * e * e * Math.sin(2 * M * D2R);
+        EoT *= 4 / D2R;
+
+        /* Hour angle at official sunrise/sunset zenith */
+        var zenith = 90.833;
+        var cosHA  = Math.cos(zenith * D2R)
+                   / (Math.cos(HOME_LAT * D2R) * Math.cos(decl * D2R))
+                   - Math.tan(HOME_LAT * D2R) * Math.tan(decl * D2R);
+
+        /* Edge cases: polar night / midnight sun */
+        if (cosHA > 1)  { sunTimes = { sunrise: 12, sunset: 12 }; applySunAngles(); return; }
+        if (cosHA < -1) { sunTimes = { sunrise: 0,  sunset: 24 }; applySunAngles(); return; }
+
+        var HA = Math.acos(cosHA) / D2R;
+
+        /* Solar noon (minutes from midnight UTC) */
+        var noonUTC = 720 - 4 * HOME_LNG - EoT;
+        var riseUTC = noonUTC - HA * 4;
+        var setUTC  = noonUTC + HA * 4;
+
+        /* Convert to local time */
+        var off = getUtcOffsetMinutes(HOME_TZ);
+        sunTimes = {
+            sunrise: ((riseUTC + off) / 60 + 24) % 24,
+            sunset:  ((setUTC  + off) / 60 + 24) % 24,
+        };
+        applySunAngles();
+    }
+
+    function applySunAngles() {
+        sunAngles = {
+            rise: normAngle(decimalToAngle(sunTimes.sunrise)),
+            set:  normAngle(decimalToAngle(sunTimes.sunset)),
+        };
     }
 
     /* ── Drawing: Clock Face ────────────────────────────────── */
 
     function drawFace() {
-        /* Clip to circle, fill two halves */
         ctx.save();
         ctx.beginPath();
         ctx.arc(CX, CY, R, 0, Math.PI * 2);
         ctx.clip();
+
+        /* Day background — full circle */
         ctx.fillStyle = COL.dayBg;
-        ctx.fillRect(CX - R, CY - R, R * 2, R);
+        ctx.fillRect(CX - R, CY - R, R * 2, R * 2);
+
+        /* Night wedge (sunset → sunrise, clockwise through midnight) */
         ctx.fillStyle = COL.nightBg;
-        ctx.fillRect(CX - R, CY, R * 2, R);
+        ctx.beginPath();
+        ctx.moveTo(CX, CY);
+        ctx.arc(CX, CY, R, sunAngles.set, sunAngles.rise, false);
+        ctx.closePath();
+        ctx.fill();
+
         ctx.restore();
 
         /* Outer ring */
@@ -148,12 +307,20 @@
 
     /* ── Drawing: Sun & Moon Icons ───────────────────────────── */
 
+    /** Centroid distance from centre for a circular sector of given span. */
+    function sectorCentroid(span) {
+        if (span < 0.01) return R * 0.62;
+        return (4 * R * Math.sin(span / 2)) / (3 * span);
+    }
+
     function drawSunMoon() {
-        /* ☀ Sun — upper-right area of the day half */
-        const sa = -40 * Math.PI / 180;
-        const sr = R * 0.62;
-        const sx = CX + Math.cos(sa) * sr;
-        const sy = CY + Math.sin(sa) * sr;
+        const NOON     = -Math.PI / 2;   // top dead centre
+        const MIDNIGHT =  Math.PI / 2;   // bottom dead centre
+        const iconR    = R * 0.50;
+
+        /* ☀ Sun — noon (top) */
+        const sx = CX + Math.cos(NOON) * iconR;
+        const sy = CY + Math.sin(NOON) * iconR;
         const ss = R * 0.028;
 
         ctx.fillStyle = COL.sun;
@@ -171,11 +338,9 @@
             ctx.stroke();
         }
 
-        /* 🌙 Moon — lower-left area of the night half */
-        const ma = 140 * Math.PI / 180;
-        const mr = R * 0.62;
-        const mx = CX + Math.cos(ma) * mr;
-        const my = CY + Math.sin(ma) * mr;
+        /* 🌙 Moon — midnight (bottom) */
+        const mx = CX + Math.cos(MIDNIGHT) * iconR;
+        const my = CY + Math.sin(MIDNIGHT) * iconR;
         const ms = R * 0.028;
 
         ctx.fillStyle = COL.moon;
@@ -204,18 +369,22 @@
         const lt = city.home ? COL.homeLight : COL.handLight;
         const lw = city.home ? 2.5 : 1.5;
 
-        /* Segment visible on DAY half */
+        /* Segment visible on DAY wedge (sunrise → sunset, clockwise) */
         ctx.save();
         ctx.beginPath();
-        ctx.rect(CX - R, CY - R, R * 2, R);
+        ctx.moveTo(CX, CY);
+        ctx.arc(CX, CY, R, sunAngles.rise, sunAngles.set, false);
+        ctx.closePath();
         ctx.clip();
         strokeLine(sx, sy, ex, ey, dk, lw);
         ctx.restore();
 
-        /* Segment visible on NIGHT half */
+        /* Segment visible on NIGHT wedge (sunset → sunrise, clockwise) */
         ctx.save();
         ctx.beginPath();
-        ctx.rect(CX - R, CY, R * 2, R);
+        ctx.moveTo(CX, CY);
+        ctx.arc(CX, CY, R, sunAngles.set, sunAngles.rise, false);
+        ctx.closePath();
         ctx.clip();
         strokeLine(sx, sy, ex, ey, lt, lw);
         ctx.restore();
@@ -237,7 +406,7 @@
         const lr  = R * 0.44;
         const lx  = CX + Math.cos(angle) * lr;
         const ly  = CY + Math.sin(angle) * lr;
-        const day = ly < CY;
+        const day = isDay(angle);
 
         const dk = city.home ? COL.homeDark  : COL.labelDark;
         const lt = city.home ? COL.homeLight : COL.labelLight;
@@ -293,6 +462,8 @@
 
     window.addEventListener('resize', resize);
     resize();
+    computeSunTimes();
+    setInterval(computeSunTimes, 3600000);   // recompute every hour
     draw();
 
 })();
