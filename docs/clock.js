@@ -285,7 +285,7 @@
     /* ── Drawing: Hour Numbers ──────────────────────────────── */
 
     function drawNumbers() {
-        const fs = R * 0.072;
+        const fs = R * 0.144;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
 
@@ -410,7 +410,7 @@
 
         const dk = city.home ? COL.homeDark  : COL.labelDark;
         const lt = city.home ? COL.homeLight : COL.labelLight;
-        const fs = R * 0.055;
+        const fs = R * 0.110;
 
         ctx.save();
         ctx.translate(lx, ly);
