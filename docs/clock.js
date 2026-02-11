@@ -25,7 +25,7 @@
         nightBg:    '#181818',
         homeDark:   '#2B7BCE',
         homeLight:  '#5BB0EE',
-        handDark:   '#444',
+        handDark:   '#888',
         handLight:  '#AAA',
         numDark:    '#333',
         numLight:   '#CCC',
@@ -411,7 +411,7 @@
 
         const dk = city.home ? COL.homeDark  : COL.labelDark;
         const lt = city.home ? COL.homeLight : COL.labelLight;
-        const fs = R * 0.110;
+        const fs = R * 0.080;
 
         ctx.save();
         ctx.translate(lx, ly);
