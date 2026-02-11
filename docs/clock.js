@@ -6,7 +6,8 @@
     const CITIES = [
         { name: 'PORTLAND',  tz: 'America/Los_Angeles', home: true  },
         { name: 'BOSTON',    tz: 'America/New_York',    home: false },
-        { name: 'LONDON',   tz: 'Europe/London',       home: false },
+        { name: 'SPAIN/POLAND',   tz: 'Europe/Madrid',       home: false },
+        { name: 'SÃO PAULO', tz: 'America/Sao_Paulo', home: false },
         { name: 'PUNE',     tz: 'Asia/Kolkata',        home: false },
         { name: 'MANILA',   tz: 'Asia/Manila',         home: false },
     ];
