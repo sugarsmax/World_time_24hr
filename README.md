@@ -1,6 +1,7 @@
-> This page was authored with the assistance of an AI coding agent (Claude claude-4.6-opus, via Cursor).
 
 # World Time Clock
+
+https://sugarsmax.github.io/World_time_24hr/
 
 A 24-hour analog world clock rendered on HTML5 Canvas. The clock face is split into
 day (light) and night (dark) halves, with hands for five cities that adapt colour
